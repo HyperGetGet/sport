@@ -7,7 +7,7 @@ import {
   onAuthStateChanged, signOut as fbSignOut,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
-  initializeFirestore, doc, getDoc, getDocs, collection, onSnapshot, writeBatch, setDoc,
+  initializeFirestore, doc, getDoc, getDocs, collection, onSnapshot, writeBatch, setDoc, serverTimestamp, getDocFromServer,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
 const CFG = {
@@ -38,6 +38,8 @@ const P = {
   ideas: () => collection(db, 'users', uid, 'ideas'),
   idea: (id) => doc(db, 'users', uid, 'ideas', id),
   backup: (k) => doc(db, 'users', uid, 'backups', k),
+  live: () => doc(db, 'users', uid, 'meta', 'live'),
+  ping: () => doc(db, 'users', uid, 'meta', 'ping_' + DEV),
 };
 
 const LOCAL_ONLY = ['logs', 'live', 'dirty', 'delLogs', 'syncedAt', 'lastBackup'];
@@ -65,7 +67,7 @@ export function start(api) {
     if (u) {
       uid = u.uid; email = u.email || '';
       status('sync');
-      firstSync().then(listen).catch((e) => status('err', { msg: errText(e) }));
+      firstSync().then(listen).then(() => A.ready && A.ready()).catch((e) => status('err', { msg: errText(e) }));
     } else {
       uid = null; email = '';
       status('off');
@@ -205,6 +207,45 @@ async function pushIdeas() {
 }
 
 /* Changements faits sur un autre appareil (téléphone, écran du sous-sol…). */
+/* Séance en direct : le téléphone publie, l'écran de la salle écoute. */
+let liveTimer = null, liveLast = '';
+export function pushLive(sum) {
+  if (!uid) return;
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => {
+    const j = JSON.stringify(sum);
+    if (j === liveLast) return;
+    liveLast = j;
+    setDoc(P.live(), { json: j, at: serverTimestamp(), dev: DEV }).catch(() => { liveLast = ''; });
+  }, 150);
+}
+let offset = 0; // écart entre l'horloge de cet appareil et celle de Google
+async function measureOffset() {
+  try {
+    const t0 = Date.now();
+    await setDoc(P.ping(), { t: serverTimestamp() });
+    const d = await getDocFromServer(P.ping());
+    const t1 = Date.now();
+    offset = d.data().t.toMillis() - (t0 + t1) / 2;
+  } catch (e) { offset = 0; }
+}
+export function watchLive(cb) {
+  if (!uid) return () => {};
+  measureOffset();
+  const u = onSnapshot(P.live(), (snap) => {
+    if (!snap.exists() || snap.metadata.hasPendingWrites) return;
+    const d = snap.data();
+    let o; try { o = JSON.parse(d.json); } catch (e) { return; }
+    const at = d.at && d.at.toMillis ? d.at.toMillis() - offset : Date.now();
+    o.endLocal = o.left ? at + o.left : 0; // fin du repos, exprimée avec l'horloge de cet appareil
+    o.fromDev = d.dev;
+    cb(o);
+  }, () => {});
+  unsubs.push(u);
+  return u;
+}
+export function isSignedIn() { return !!uid; }
+
 function listen() {
   unsubs.push(onSnapshot(P.state(), (snap) => {
     if (!snap.exists() || snap.metadata.hasPendingWrites) return;
