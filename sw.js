@@ -1,6 +1,7 @@
 /* Mon Sport : fonctionnement hors connexion */
-const VERSION = 'sport-v0.1.1';
-const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
+const VERSION = 'sport-v0.2.0';
+const FILES = ['./', 'index.html', 'cloud.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
+const SDK = 'https://www.gstatic.com/firebasejs/';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
@@ -9,26 +10,37 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== 'sport-sdk').map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
-// Page servie tout de suite depuis le cache, puis mise à jour en arrière-plan.
+function timeout(ms) { return new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms)); }
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+
+  // Bibliothèque Firebase : gardée en cache pour démarrer même sans réseau.
+  if (req.url.startsWith(SDK)) {
+    e.respondWith(caches.open('sport-sdk').then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => {
+      if (res && res.ok) c.put(req, res.clone());
+      return res;
+    }))));
+    return;
+  }
+  if (url.origin !== location.origin) return;
+
+  // Fichiers de l'appli : d'abord le réseau (pour avoir la dernière version), le cache si pas de réseau.
   e.respondWith(
     caches.open(VERSION).then((cache) =>
-      cache.match(req, { ignoreSearch: true }).then((hit) => {
-        const net = fetch(req)
-          .then((res) => {
-            if (res && res.ok) cache.put(req, res.clone());
-            return res;
-          })
-          .catch(() => hit);
-        return hit || net;
-      })
+      Promise.race([fetch(req, { cache: 'no-cache' }), timeout(4000)])
+        .then((res) => {
+          if (res && res.ok) cache.put(req, res.clone());
+          return res;
+        })
+        .catch(() => cache.match(req, { ignoreSearch: true }).then((hit) => hit || fetch(req)))
     )
   );
 });
