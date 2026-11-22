@@ -1,5 +1,5 @@
 /* Mon Sport : fonctionnement hors connexion */
-const VERSION = 'sport-v0.1.0';
+const VERSION = 'sport-v0.1.1';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
