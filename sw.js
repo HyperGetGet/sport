@@ -1,5 +1,5 @@
 /* Mon Sport : fonctionnement hors connexion */
-const VERSION = 'sport-v0.3.0';
+const VERSION = 'sport-v0.3.1';
 const FILES = ['./', 'index.html', 'cloud.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 const SDK = 'https://www.gstatic.com/firebasejs/';
 
@@ -43,4 +43,13 @@ self.addEventListener('fetch', (e) => {
         .catch(() => cache.match(req, { ignoreSearch: true }).then((hit) => hit || fetch(req)))
     )
   );
+});
+
+// Toucher la notification de fin de repos ramène dans l'appli.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((cs) => {
+    for (const c of cs) { if ('focus' in c) return c.focus(); }
+    return self.clients.openWindow('./');
+  }));
 });
