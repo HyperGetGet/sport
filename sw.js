@@ -1,5 +1,5 @@
 /* Mon Sport : fonctionnement hors connexion */
-const VERSION = 'sport-v0.4.0';
+const VERSION = 'sport-v0.4.1';
 const FILES = ['./', 'index.html', 'cloud.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 const SDK = 'https://www.gstatic.com/firebasejs/';
 
